@@ -109,62 +109,69 @@ public class DiscreteLattice {
     }
 
     /**
-     * Propagate energy using discrete cellular automaton rules.
+     * FUNDAMENTAL QUANTUM RULES (not wave equations!)
      *
-     * Rule: Energy flows from high to low levels
-     * - If a site has more energy than its neighbors, share quanta
-     * - Conservation: total quanta is preserved (approximately)
+     * Rule: Energy quanta flow from high-potential to low-potential sites
+     * - If neighbor has lower energy, transfer 1 quantum
+     * - Process all 4 directions each step
+     * - Waves/diffusion should EMERGE from this, not be modeled directly
+     *
+     * Like molecular dynamics: simple local interactions → emergent waves
      */
     public void propagateEnergy() {
-        // Copy current state to next buffer
+        // Copy to buffer
         System.arraycopy(energyLevel, 0, nextEnergy, 0, totalSpheres);
 
+        // Process each site
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
                 int idx = getIndex(x, y);
                 int energy = energyLevel[idx];
 
-                if (energy == LEVEL_0) continue; // No energy to propagate
+                if (energy == 0) continue; // No quanta to transfer
 
-                // Get neighbor indices
-                int right = getNeighborIndex(x + 1, y, gridWidth, gridHeight);
-                int left = getNeighborIndex(x - 1, y, gridWidth, gridHeight);
-                int down = getNeighborIndex(x, y + 1, gridWidth, gridHeight);
-                int up = getNeighborIndex(x, y - 1, gridWidth, gridHeight);
+                // Get neighbors
+                int[] neighbors = new int[4];
+                neighbors[0] = getNeighborIndex(x + 1, y, gridWidth, gridHeight);
+                neighbors[1] = getNeighborIndex(x - 1, y, gridWidth, gridHeight);
+                neighbors[2] = getNeighborIndex(x, y + 1, gridWidth, gridHeight);
+                neighbors[3] = getNeighborIndex(x, y - 1, gridWidth, gridHeight);
 
-                if (right == -1 || left == -1 || down == -1 || up == -1) {
-                    continue; // Edge case for non-toroidal
+                // Count neighbors with LOWER energy (gradient)
+                int lowerCount = 0;
+                for (int n : neighbors) {
+                    if (n != -1 && energyLevel[n] < energy) {
+                        lowerCount++;
+                    }
                 }
 
-                // Count neighbors with lower energy
-                int totalGradient = 0;
-                if (energyLevel[right] < energy) totalGradient++;
-                if (energyLevel[left] < energy) totalGradient++;
-                if (energyLevel[down] < energy) totalGradient++;
-                if (energyLevel[up] < energy) totalGradient++;
+                // If we have lower neighbors, transfer energy
+                // Allow even level-1 to propagate (otherwise system freezes at equilibrium)
+                if (lowerCount > 0 && energy > 0) {
+                    // Transfer 1 quantum to a lower neighbor
+                    // Choose based on position (deterministic, not random)
+                    int choice = (idx + stepCount) % lowerCount;
+                    int transferred = 0;
 
-                // If high energy and neighbors are lower, share
-                if (energy >= LEVEL_2 && totalGradient > 0) {
-                    // Transfer one quantum to a lower neighbor
-                    nextEnergy[idx] = (byte) (energy - 1);
-
-                    // Find first lower neighbor and give quantum
-                    if (energyLevel[right] < energy && nextEnergy[right] < LEVEL_3) {
-                        nextEnergy[right] = (byte) (energyLevel[right] + 1);
-                    } else if (energyLevel[left] < energy && nextEnergy[left] < LEVEL_3) {
-                        nextEnergy[left] = (byte) (energyLevel[left] + 1);
-                    } else if (energyLevel[down] < energy && nextEnergy[down] < LEVEL_3) {
-                        nextEnergy[down] = (byte) (energyLevel[down] + 1);
-                    } else if (energyLevel[up] < energy && nextEnergy[up] < LEVEL_3) {
-                        nextEnergy[up] = (byte) (energyLevel[up] + 1);
+                    for (int n : neighbors) {
+                        if (n != -1 && energyLevel[n] < energy) {
+                            if (transferred == choice && nextEnergy[n] < LEVEL_3) {
+                                nextEnergy[idx]--;
+                                nextEnergy[n]++;
+                                break;
+                            }
+                            transferred++;
+                        }
                     }
                 }
             }
         }
 
-        // Swap buffers
+        stepCount++;
         System.arraycopy(nextEnergy, 0, energyLevel, 0, totalSpheres);
     }
+
+    private int stepCount = 0; // For deterministic selection
 
     /**
      * Propagate EM field using wave equation (discrete).
