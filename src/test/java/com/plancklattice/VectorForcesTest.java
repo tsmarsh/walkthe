@@ -24,32 +24,21 @@ class VectorForcesTest {
     class SpacingForcesTests {
 
         @Test
-        @DisplayName("Should produce forces on uniform equilibrium lattice")
+        @DisplayName("Should produce zero forces on uniform equilibrium lattice")
         void testZeroForcesAtEquilibrium() {
             // USAGE: Calculate spacing forces on a lattice
-            // Note: Even on a uniform lattice, the toroidal boundary conditions and
-            // the way forces are accumulated from each neighbor create non-zero forces.
-            // This is because each sphere calculates forces to all 4 neighbors independently.
             PlanckLattice lattice = new PlanckLattice(10, 10);
             VectorForces forces = new VectorForces(lattice);
 
             lattice.clearForces();
             forces.calculateSpacingForces();
 
-            // Forces are calculated - verify the calculation completed
-            // The uniform lattice at equilibrium spacing will have forces due to
-            // the implementation details (each sphere-neighbor pair gets force calculation)
-            boolean hasCalculatedForces = false;
             for (int i = 0; i < lattice.totalSpheres; i++) {
-                if (Math.abs(lattice.forceX[i]) > 0.001f || Math.abs(lattice.forceY[i]) > 0.001f) {
-                    hasCalculatedForces = true;
-                    break;
-                }
+                assertEquals(0.0f, lattice.forceX[i], 1e-5f,
+                    "Equilibrium lattice should have zero X force at index " + i);
+                assertEquals(0.0f, lattice.forceY[i], 1e-5f,
+                    "Equilibrium lattice should have zero Y force at index " + i);
             }
-
-            // The calculation should complete without errors
-            // For a truly equilibrium test, see the compressed/stretched tests
-            assertTrue(true, "Force calculation should complete without errors");
         }
 
         @Test
@@ -141,21 +130,38 @@ class VectorForcesTest {
         }
 
         @Test
-        @DisplayName("Should scale force magnitude with spring constant")
-        void testSpringConstantScaling() {
-            // USAGE: Force magnitude is proportional to k (SPRING_K)
-            PlanckLattice lattice = new PlanckLattice(2, 1);
+        @DisplayName("Wrap-around neighbors should use shortest separation vector")
+        void testToroidalNeighborsUseShortestVector() {
+            PlanckLattice lattice = new PlanckLattice(6, 1);
             VectorForces forces = new VectorForces(lattice);
-
-            // Displace second sphere
-            lattice.posX[1] = 2.0f;  // Distance = 2.0 instead of 1.0
 
             lattice.clearForces();
             forces.calculateSpacingForces();
 
-            // Force magnitude should be k * (d - d0) = 1.0 * (2.0 - 1.0) = 1.0
-            // But there are toroidal neighbors, so just check it's non-zero and reasonable
-            float force = lattice.forceX[0];
+            int leftEdge = lattice.getIndex(0, 0);
+            int rightEdge = lattice.getIndex(lattice.gridWidth - 1, 0);
+
+            assertEquals(0.0f, lattice.forceX[leftEdge], 1e-6f,
+                "Left edge should be in equilibrium with wrapped neighbor");
+            assertEquals(0.0f, lattice.forceX[rightEdge], 1e-6f,
+                "Right edge should be in equilibrium with wrapped neighbor");
+        }
+
+        @Test
+        @DisplayName("Should scale force magnitude with spring constant")
+        void testSpringConstantScaling() {
+            // USAGE: Force magnitude is proportional to k (SPRING_K)
+            PlanckLattice lattice = new PlanckLattice(5, 1);
+            VectorForces forces = new VectorForces(lattice);
+
+            // Displace middle sphere - use larger lattice to avoid wrap ambiguity
+            lattice.posX[2] = 2.5f;  // Stretched by 0.5
+
+            lattice.clearForces();
+            forces.calculateSpacingForces();
+
+            // The middle sphere should have forces from stretched neighbors
+            float force = lattice.forceX[2];
             assertTrue(Math.abs(force) > 0.1f, "Should have significant force with displacement");
         }
     }
@@ -197,7 +203,8 @@ class VectorForcesTest {
 
             // Note: The implementation applies gravity force from energy source to neighbors
             // Based on the code: dx = px1 - px2 (from neighbor to source)
-            // and forceMag is negative (attractive), so the direction is toward the source
+            // and the force magnitude is positive, so multiplying by the normalized
+            // direction pulls neighbors toward the source
 
             // Right neighbor should have force (check for non-zero)
             int rightIdx = lattice.getIndex(3, 2);
@@ -224,6 +231,48 @@ class VectorForcesTest {
             // Forces should point in opposite directions on opposite sides
             assertTrue(rightForceX * leftForceX < 0, "Left and right forces should be opposite");
             assertTrue(topForceY * bottomForceY < 0, "Top and bottom forces should be opposite");
+        }
+
+        @Test
+        @DisplayName("Gravitational force direction should point toward the energy source")
+        void testGravityDirectionIsAttractive() {
+            PlanckLattice lattice = new PlanckLattice(3, 3);
+            VectorForces forces = new VectorForces(lattice);
+
+            int source = lattice.getIndex(1, 1);
+            lattice.energyDensity[source] = 10.0f;
+
+            lattice.clearForces();
+            forces.calculateGravityForces();
+
+            int rightNeighbor = lattice.getIndex(2, 1);
+            float forceX = lattice.forceX[rightNeighbor];
+            float expected = -PlanckLattice.GRAVITY_G * lattice.energyDensity[source];
+
+            assertTrue(forceX < 0.0f, "Neighbor should be pulled toward the source");
+            assertEquals(expected, forceX, 1e-6f, "Force magnitude should match linear model");
+            assertEquals(0.0f, lattice.forceY[rightNeighbor], 1e-6f,
+                "No vertical component expected for horizontal neighbor");
+        }
+
+        @Test
+        @DisplayName("Gravity should pull across toroidal wrap using shortest path")
+        void testGravityWrapsAroundEdges() {
+            PlanckLattice lattice = new PlanckLattice(6, 1);
+            VectorForces forces = new VectorForces(lattice);
+
+            int source = lattice.getIndex(0, 0);
+            int wrapNeighbor = lattice.getIndex(lattice.gridWidth - 1, 0);
+            lattice.energyDensity[source] = 20.0f;
+
+            lattice.clearForces();
+            forces.calculateGravityForces();
+
+            float expected = PlanckLattice.GRAVITY_G * lattice.energyDensity[source];
+            assertEquals(expected, lattice.forceX[wrapNeighbor], 1e-6f,
+                "Wrap neighbor should be pulled toward the source across the boundary");
+            assertEquals(0.0f, lattice.forceY[wrapNeighbor], 1e-6f,
+                "No vertical force in 1D row");
         }
 
         @Test
