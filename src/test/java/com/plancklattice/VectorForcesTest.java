@@ -151,18 +151,17 @@ class VectorForcesTest {
         @DisplayName("Should scale force magnitude with spring constant")
         void testSpringConstantScaling() {
             // USAGE: Force magnitude is proportional to k (SPRING_K)
-            PlanckLattice lattice = new PlanckLattice(2, 1);
+            PlanckLattice lattice = new PlanckLattice(5, 1);
             VectorForces forces = new VectorForces(lattice);
 
-            // Displace second sphere
-            lattice.posX[1] = 2.0f;  // Distance = 2.0 instead of 1.0
+            // Displace middle sphere - use larger lattice to avoid wrap ambiguity
+            lattice.posX[2] = 2.5f;  // Stretched by 0.5
 
             lattice.clearForces();
             forces.calculateSpacingForces();
 
-            // Force magnitude should be k * (d - d0) = 1.0 * (2.0 - 1.0) = 1.0
-            // But there are toroidal neighbors, so just check it's non-zero and reasonable
-            float force = lattice.forceX[0];
+            // The middle sphere should have forces from stretched neighbors
+            float force = lattice.forceX[2];
             assertTrue(Math.abs(force) > 0.1f, "Should have significant force with displacement");
         }
     }
