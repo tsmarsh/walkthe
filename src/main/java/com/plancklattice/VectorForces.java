@@ -10,9 +10,13 @@ import jdk.incubator.vector.VectorMask;
 public class VectorForces {
 
     private final PlanckLattice lattice;
+    private final float latticeWidth;
+    private final float latticeHeight;
 
     public VectorForces(PlanckLattice lattice) {
         this.lattice = lattice;
+        this.latticeWidth = lattice.gridWidth * PlanckLattice.EQUILIBRIUM_DISTANCE;
+        this.latticeHeight = lattice.gridHeight * PlanckLattice.EQUILIBRIUM_DISTANCE;
     }
 
     /**
@@ -76,8 +80,8 @@ public class VectorForces {
         float py2 = lattice.posY[index2];
 
         // Vector from sphere1 to sphere2
-        float dx = px2 - px1;
-        float dy = py2 - py1;
+        float dx = wrapDelta(px2 - px1, latticeWidth);
+        float dy = wrapDelta(py2 - py1, latticeHeight);
 
         // Current distance
         float dist = (float) Math.sqrt(dx * dx + dy * dy);
@@ -154,8 +158,8 @@ public class VectorForces {
         float py2 = lattice.posY[neighborIndex];
 
         // Vector from neighbor to energy source
-        float dx = px1 - px2;
-        float dy = py1 - py2;
+        float dx = wrapDelta(px1 - px2, latticeWidth);
+        float dy = wrapDelta(py1 - py2, latticeHeight);
 
         float dist = (float) Math.sqrt(dx * dx + dy * dy);
 
@@ -220,5 +224,16 @@ public class VectorForces {
                 lattice.forceY[i] *= scale;
             }
         }
+    }
+
+    private float wrapDelta(float delta, float span) {
+        float halfSpan = span * 0.5f;
+        if (delta > halfSpan) {
+            return delta - span;
+        }
+        if (delta < -halfSpan) {
+            return delta + span;
+        }
+        return delta;
     }
 }

@@ -24,32 +24,21 @@ class VectorForcesTest {
     class SpacingForcesTests {
 
         @Test
-        @DisplayName("Should produce forces on uniform equilibrium lattice")
+        @DisplayName("Should produce zero forces on uniform equilibrium lattice")
         void testZeroForcesAtEquilibrium() {
             // USAGE: Calculate spacing forces on a lattice
-            // Note: Even on a uniform lattice, the toroidal boundary conditions and
-            // the way forces are accumulated from each neighbor create non-zero forces.
-            // This is because each sphere calculates forces to all 4 neighbors independently.
             PlanckLattice lattice = new PlanckLattice(10, 10);
             VectorForces forces = new VectorForces(lattice);
 
             lattice.clearForces();
             forces.calculateSpacingForces();
 
-            // Forces are calculated - verify the calculation completed
-            // The uniform lattice at equilibrium spacing will have forces due to
-            // the implementation details (each sphere-neighbor pair gets force calculation)
-            boolean hasCalculatedForces = false;
             for (int i = 0; i < lattice.totalSpheres; i++) {
-                if (Math.abs(lattice.forceX[i]) > 0.001f || Math.abs(lattice.forceY[i]) > 0.001f) {
-                    hasCalculatedForces = true;
-                    break;
-                }
+                assertEquals(0.0f, lattice.forceX[i], 1e-5f,
+                    "Equilibrium lattice should have zero X force at index " + i);
+                assertEquals(0.0f, lattice.forceY[i], 1e-5f,
+                    "Equilibrium lattice should have zero Y force at index " + i);
             }
-
-            // The calculation should complete without errors
-            // For a truly equilibrium test, see the compressed/stretched tests
-            assertTrue(true, "Force calculation should complete without errors");
         }
 
         @Test
@@ -138,6 +127,24 @@ class VectorForcesTest {
             // Edge sphere should have forces from wrapped neighbors
             assertNotEquals(0.0f, lattice.forceX[edgeIdx], 1e-5f,
                 "Edge sphere should have forces from wrapped neighbors");
+        }
+
+        @Test
+        @DisplayName("Wrap-around neighbors should use shortest separation vector")
+        void testToroidalNeighborsUseShortestVector() {
+            PlanckLattice lattice = new PlanckLattice(6, 1);
+            VectorForces forces = new VectorForces(lattice);
+
+            lattice.clearForces();
+            forces.calculateSpacingForces();
+
+            int leftEdge = lattice.getIndex(0, 0);
+            int rightEdge = lattice.getIndex(lattice.gridWidth - 1, 0);
+
+            assertEquals(0.0f, lattice.forceX[leftEdge], 1e-6f,
+                "Left edge should be in equilibrium with wrapped neighbor");
+            assertEquals(0.0f, lattice.forceX[rightEdge], 1e-6f,
+                "Right edge should be in equilibrium with wrapped neighbor");
         }
 
         @Test
@@ -247,6 +254,26 @@ class VectorForcesTest {
             assertEquals(expected, forceX, 1e-6f, "Force magnitude should match linear model");
             assertEquals(0.0f, lattice.forceY[rightNeighbor], 1e-6f,
                 "No vertical component expected for horizontal neighbor");
+        }
+
+        @Test
+        @DisplayName("Gravity should pull across toroidal wrap using shortest path")
+        void testGravityWrapsAroundEdges() {
+            PlanckLattice lattice = new PlanckLattice(6, 1);
+            VectorForces forces = new VectorForces(lattice);
+
+            int source = lattice.getIndex(0, 0);
+            int wrapNeighbor = lattice.getIndex(lattice.gridWidth - 1, 0);
+            lattice.energyDensity[source] = 20.0f;
+
+            lattice.clearForces();
+            forces.calculateGravityForces();
+
+            float expected = PlanckLattice.GRAVITY_G * lattice.energyDensity[source];
+            assertEquals(expected, lattice.forceX[wrapNeighbor], 1e-6f,
+                "Wrap neighbor should be pulled toward the source across the boundary");
+            assertEquals(0.0f, lattice.forceY[wrapNeighbor], 1e-6f,
+                "No vertical force in 1D row");
         }
 
         @Test
