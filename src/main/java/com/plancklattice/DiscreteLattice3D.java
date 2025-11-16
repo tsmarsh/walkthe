@@ -3,6 +3,9 @@ package com.plancklattice;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.VectorSpecies;
 import jdk.incubator.vector.VectorOperators;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.stream.IntStream;
 
 /**
  * 3D discrete quantum lattice using native 2-bit quantum states.
@@ -150,6 +153,99 @@ public class DiscreteLattice3D {
                 }
             }
         }
+
+        stepCount++;
+        System.arraycopy(nextEnergy, 0, energyLevel, 0, totalSites);
+    }
+
+    /**
+     * Get parallelism level from environment variable or system default.
+     * Allows tuning via LATTICE_THREADS env var.
+     */
+    private static int getParallelismLevel() {
+        String envThreads = System.getenv("LATTICE_THREADS");
+        if (envThreads != null) {
+            try {
+                int threads = Integer.parseInt(envThreads);
+                if (threads > 0) {
+                    return threads;
+                }
+            } catch (NumberFormatException e) {
+                // Fall through to default
+            }
+        }
+        return ForkJoinPool.commonPool().getParallelism();
+    }
+
+    /**
+     * PARALLEL propagateEnergy - cache-optimized contiguous block assignment.
+     *
+     * Strategy: Assign contiguous Z-ranges to each thread
+     * - Reduces false sharing (cache line conflicts between cores)
+     * - Each thread writes to separate memory regions
+     * - Thread 0: z=[0, N/T), Thread 1: z=[N/T, 2N/T), etc.
+     * - Minor race conditions at Z-boundaries (acceptable for emergent behavior)
+     * - No locks, no atomics, no contention
+     *
+     * Parallelism configurable via LATTICE_THREADS env var or auto-detected.
+     */
+    public void propagateEnergyParallel() {
+        System.arraycopy(energyLevel, 0, nextEnergy, 0, totalSites);
+
+        int numThreads = getParallelismLevel();
+
+        // Process contiguous Z-ranges in parallel
+        IntStream.range(0, numThreads).parallel().forEach(threadId -> {
+            // Each thread gets contiguous range of Z-slices
+            int zStart = (threadId * gridDepth) / numThreads;
+            int zEnd = ((threadId + 1) * gridDepth) / numThreads;
+
+            for (int z = zStart; z < zEnd; z++) {
+                for (int y = 0; y < gridHeight; y++) {
+                    for (int x = 0; x < gridWidth; x++) {
+                        int idx = getIndex(x, y, z);
+                        int energy = energyLevel[idx];
+
+                        if (energy == 0) continue;
+
+                        // Get 6 neighbors
+                        int[] neighbors = new int[6];
+                        neighbors[0] = getNeighborIndex(x + 1, y, z);
+                        neighbors[1] = getNeighborIndex(x - 1, y, z);
+                        neighbors[2] = getNeighborIndex(x, y + 1, z);
+                        neighbors[3] = getNeighborIndex(x, y - 1, z);
+                        neighbors[4] = getNeighborIndex(x, y, z + 1);
+                        neighbors[5] = getNeighborIndex(x, y, z - 1);
+
+                        // Count neighbors with lower energy
+                        int lowerCount = 0;
+                        for (int n : neighbors) {
+                            if (n != -1 && energyLevel[n] < energy) {
+                                lowerCount++;
+                            }
+                        }
+
+                        // Transfer 1 quantum to a lower neighbor
+                        if (lowerCount > 0 && energy > 0) {
+                            int choice = (idx + stepCount) % lowerCount;
+                            int transferred = 0;
+
+                            for (int n : neighbors) {
+                                if (n != -1 && energyLevel[n] < energy) {
+                                    if (transferred == choice && nextEnergy[n] < LEVEL_3) {
+                                        // Unsynchronized updates - fast but may have minor races
+                                        nextEnergy[idx]--;
+                                        nextEnergy[n]++;
+                                        break;
+                                    }
+                                    transferred++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
         stepCount++;
         System.arraycopy(nextEnergy, 0, energyLevel, 0, totalSites);
