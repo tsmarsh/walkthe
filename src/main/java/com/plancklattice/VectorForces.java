@@ -160,9 +160,10 @@ public class VectorForces {
         float dist = (float) Math.sqrt(dx * dx + dy * dy);
 
         if (dist > 0.0001f) {
-            // Gravitational force: F = -G × energy × distance
+            // Gravitational force: F = G × energy × distance
             // (Simplified model: linear with distance instead of inverse square)
-            float forceMag = -PlanckLattice.GRAVITY_G * energy * dist;
+            // Positive magnitude keeps the direction attractive (toward the energy source)
+            float forceMag = PlanckLattice.GRAVITY_G * energy * dist;
 
             // Normalize direction
             float nx = dx / dist;

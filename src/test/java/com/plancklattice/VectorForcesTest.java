@@ -197,7 +197,8 @@ class VectorForcesTest {
 
             // Note: The implementation applies gravity force from energy source to neighbors
             // Based on the code: dx = px1 - px2 (from neighbor to source)
-            // and forceMag is negative (attractive), so the direction is toward the source
+            // and the force magnitude is positive, so multiplying by the normalized
+            // direction pulls neighbors toward the source
 
             // Right neighbor should have force (check for non-zero)
             int rightIdx = lattice.getIndex(3, 2);
@@ -224,6 +225,28 @@ class VectorForcesTest {
             // Forces should point in opposite directions on opposite sides
             assertTrue(rightForceX * leftForceX < 0, "Left and right forces should be opposite");
             assertTrue(topForceY * bottomForceY < 0, "Top and bottom forces should be opposite");
+        }
+
+        @Test
+        @DisplayName("Gravitational force direction should point toward the energy source")
+        void testGravityDirectionIsAttractive() {
+            PlanckLattice lattice = new PlanckLattice(3, 3);
+            VectorForces forces = new VectorForces(lattice);
+
+            int source = lattice.getIndex(1, 1);
+            lattice.energyDensity[source] = 10.0f;
+
+            lattice.clearForces();
+            forces.calculateGravityForces();
+
+            int rightNeighbor = lattice.getIndex(2, 1);
+            float forceX = lattice.forceX[rightNeighbor];
+            float expected = -PlanckLattice.GRAVITY_G * lattice.energyDensity[source];
+
+            assertTrue(forceX < 0.0f, "Neighbor should be pulled toward the source");
+            assertEquals(expected, forceX, 1e-6f, "Force magnitude should match linear model");
+            assertEquals(0.0f, lattice.forceY[rightNeighbor], 1e-6f,
+                "No vertical component expected for horizontal neighbor");
         }
 
         @Test
