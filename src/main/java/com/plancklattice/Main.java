@@ -42,6 +42,12 @@ public class Main {
             case "combined":
                 runCombinedScenario(gridSize, timesteps);
                 break;
+            case "particle-formation":
+                runParticleFormationScenario(gridSize, timesteps);
+                break;
+            case "particle-collision":
+                runParticleCollisionScenario(gridSize, timesteps);
+                break;
             case "benchmark":
                 runBenchmark(gridSize);
                 break;
@@ -164,7 +170,105 @@ public class Main {
     }
 
     /**
-     * Scenario 4: Performance Benchmark
+     * Scenario 4: Particle Formation via Annealing
+     * Demonstrates particle emergence from high-energy regions through lattice annealing.
+     */
+    private static void runParticleFormationScenario(int gridSize, int timesteps) {
+        System.out.println("Scenario: Particle Formation via Annealing");
+        System.out.println("High-energy EM pulse causes lattice to anneal into stable particle pattern.");
+        System.out.println();
+
+        // Create lattice
+        PlanckLattice lattice = new PlanckLattice(gridSize, gridSize);
+
+        // Add high-energy EM pulse in center to trigger particle formation
+        float centerX = gridSize / 2.0f;
+        float centerY = gridSize / 2.0f;
+        float amplitude = 5.0f;     // High amplitude to trigger annealing
+        float sigma = 8.0f;         // Compact pulse
+        float wavelength = 3.0f;
+
+        lattice.addEMPulse(centerX, centerY, amplitude, sigma, wavelength);
+
+        // Also add some energy density to help stabilize
+        lattice.addMassConcentration(centerX, centerY, 5.0f, 10.0f);
+
+        // Run simulation
+        SimulationEngine engine = new SimulationEngine(lattice);
+        engine.setOutputInterval(25);  // Frequent output to see particle form
+        engine.setVelocityDamping(0.005f);
+        engine.run(timesteps);
+
+        System.out.println("\nOutput images saved to output/ directory");
+        System.out.println("View *_particles.ppm to see formed particles (colored regions)");
+        System.out.println("View *_annealing.ppm to see annealing activity (red = active)");
+        System.out.println("View *_stability.ppm to see stable regions (green = stable)");
+    }
+
+    /**
+     * Scenario 5: Particle Collision
+     * Two high-energy regions form particles that move toward each other and interact.
+     */
+    private static void runParticleCollisionScenario(int gridSize, int timesteps) {
+        System.out.println("Scenario: Particle Collision");
+        System.out.println("Two particles form and collide, demonstrating particle interactions.");
+        System.out.println();
+
+        // Create lattice
+        PlanckLattice lattice = new PlanckLattice(gridSize, gridSize);
+
+        // Create two high-energy regions on opposite sides
+        float leftX = gridSize * 0.3f;
+        float rightX = gridSize * 0.7f;
+        float centerY = gridSize / 2.0f;
+
+        float amplitude = 4.0f;
+        float sigma = 8.0f;
+        float wavelength = 3.0f;
+
+        // Left particle
+        lattice.addEMPulse(leftX, centerY, amplitude, sigma, wavelength);
+        lattice.addMassConcentration(leftX, centerY, 5.0f, 10.0f);
+
+        // Right particle
+        lattice.addEMPulse(rightX, centerY, amplitude, sigma, wavelength);
+        lattice.addMassConcentration(rightX, centerY, 5.0f, 10.0f);
+
+        // Add initial velocities (push them toward each other)
+        for (int i = 0; i < lattice.totalSpheres; i++) {
+            float x = lattice.posX[i];
+            float y = lattice.posY[i];
+
+            // Left region: push right
+            float dxLeft = x - leftX;
+            float dyLeft = y - centerY;
+            float distLeftSq = dxLeft * dxLeft + dyLeft * dyLeft;
+            if (distLeftSq < sigma * sigma) {
+                lattice.velX[i] = 0.2f;
+            }
+
+            // Right region: push left
+            float dxRight = x - rightX;
+            float dyRight = y - centerY;
+            float distRightSq = dxRight * dxRight + dyRight * dyRight;
+            if (distRightSq < sigma * sigma) {
+                lattice.velX[i] = -0.2f;
+            }
+        }
+
+        // Run simulation
+        SimulationEngine engine = new SimulationEngine(lattice);
+        engine.setOutputInterval(25);
+        engine.setVelocityDamping(0.002f);  // Lower damping to allow movement
+        engine.run(timesteps);
+
+        System.out.println("\nOutput images saved to output/ directory");
+        System.out.println("View *_particles.ppm to see particle collision");
+        System.out.println("Particles should merge, bounce, or annihilate depending on parameters");
+    }
+
+    /**
+     * Scenario 6: Performance Benchmark
      * Compare vectorized vs scalar performance.
      */
     private static void runBenchmark(int gridSize) {
@@ -192,10 +296,12 @@ public class Main {
         System.out.println("Usage: java --add-modules jdk.incubator.vector com.plancklattice.Main [scenario] [gridSize] [timesteps]");
         System.out.println();
         System.out.println("Scenarios:");
-        System.out.println("  em-wave    - EM wave propagation through flat spacetime (default)");
-        System.out.println("  gravity    - Gravitational compression of lattice");
-        System.out.println("  combined   - EM wave through curved spacetime");
-        System.out.println("  benchmark  - Performance benchmark (vectorized vs scalar)");
+        System.out.println("  em-wave             - EM wave propagation through flat spacetime (default)");
+        System.out.println("  gravity             - Gravitational compression of lattice");
+        System.out.println("  combined            - EM wave through curved spacetime");
+        System.out.println("  particle-formation  - Particle emergence via annealing (Phase 2)");
+        System.out.println("  particle-collision  - Two particles collide (Phase 2)");
+        System.out.println("  benchmark           - Performance benchmark (vectorized vs scalar)");
         System.out.println();
         System.out.println("Parameters:");
         System.out.println("  gridSize   - Lattice size (default: 200)");

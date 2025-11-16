@@ -41,6 +41,16 @@ public class PlanckLattice {
     public final float[] emFieldRealNext;
     public final float[] emFieldImagNext;
 
+    // Annealing state arrays
+    public final float[] annealingTemperature;    // Local "temperature" for annealing
+    public final int[] packingConfiguration;       // Encodes local packing topology
+    public final float[] structuralEnergy;         // Energy stored in lattice structure
+    public final boolean[] isAnnealing;            // Which regions are actively annealing
+    public final int[] stabilityHistory;           // Count of stable timesteps
+
+    // Particle tracking (list managed separately to avoid arrays of objects)
+    public final java.util.List<ParticlePattern> particles;
+
     // Physics parameters
     public static final float SPRING_K = 1.0f;              // Spring constant for spacing
     public static final float EQUILIBRIUM_DISTANCE = 1.0f;   // Target spacing (Planck length)
@@ -48,6 +58,38 @@ public class PlanckLattice {
     public static final float EM_DAMPING = 0.01f;            // EM wave damping
     public static final float EM_SPEED = 1.0f;               // Inherent: 1 hop per timestep
     public static final float SPHERE_MASS = 1.0f;            // Mass of each sphere
+
+    // Annealing parameters
+    public static final float ANNEALING_THRESHOLD = 2.0f;    // Energy density to trigger annealing
+    public static final float INITIAL_TEMPERATURE = 1.0f;    // Starting temperature for annealing
+    public static final float COOLING_RATE = 0.99f;          // Temperature decay per step
+    public static final int ANNEALING_FREQUENCY = 10;        // How often to attempt annealing (frames)
+
+    // Particle detection parameters
+    public static final float PARTICLE_THRESHOLD = 3.0f;     // Min energy density for particle
+    public static final int STABILITY_THRESHOLD = 100;       // Frames to be considered stable
+    public static final int PARTICLE_DETECTION_FREQUENCY = 50; // Check for particles every N frames
+
+    // Resonance parameters
+    public static final float RESONANCE_STRENGTH = 0.1f;     // Coupling strength for internal resonance
+    public static final float NEIGHBOR_RADIUS = 1.5f;        // Distance to consider as neighbor
+
+    // Coordination energy preferences (by neighbor count)
+    public static final float[] COORDINATION_ENERGY = {
+        0.5f,   // 0 neighbors - very unstable
+        0.3f,   // 1 neighbor
+        0.2f,   // 2 neighbors
+        0.1f,   // 3 neighbors
+        0.05f,  // 4 neighbors - square 2D
+        0.0f,   // 5 neighbors
+        -0.8f,  // 6 neighbors - hexagonal 2D (most stable in 2D)
+        -0.2f,  // 7 neighbors
+        -0.5f,  // 8 neighbors - body-centered
+        -0.3f,  // 9 neighbors
+        -0.4f,  // 10 neighbors
+        -0.6f,  // 11 neighbors
+        -1.0f,  // 12 neighbors - FCC/HCP (most stable in 3D)
+    };
 
     /**
      * Create a new Planck lattice with the given dimensions.
@@ -70,6 +112,16 @@ public class PlanckLattice {
         this.emFieldImag = new float[totalSpheres];
         this.emFieldRealNext = new float[totalSpheres];
         this.emFieldImagNext = new float[totalSpheres];
+
+        // Allocate annealing arrays
+        this.annealingTemperature = new float[totalSpheres];
+        this.packingConfiguration = new int[totalSpheres];
+        this.structuralEnergy = new float[totalSpheres];
+        this.isAnnealing = new boolean[totalSpheres];
+        this.stabilityHistory = new int[totalSpheres];
+
+        // Initialize particle tracking
+        this.particles = new java.util.ArrayList<>();
 
         // Initialize positions in regular grid
         initializeGrid();

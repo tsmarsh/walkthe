@@ -269,4 +269,150 @@ public class Visualizer {
                           timestep, elapsedTime, avgSpacing, totalEnergy, maxEMAmplitude);
         }
     }
+
+    /**
+     * Generate a PPM image showing annealing activity.
+     * Red = actively annealing, temperature shown as intensity.
+     */
+    public void generateAnnealingActivityImage(String filename) throws IOException {
+        int width = lattice.gridWidth;
+        int height = lattice.gridHeight;
+
+        // Find max temperature for normalization
+        float maxTemp = 0.0001f;
+        for (int i = 0; i < lattice.totalSpheres; i++) {
+            if (lattice.isAnnealing[i]) {
+                maxTemp = Math.max(maxTemp, lattice.annealingTemperature[i]);
+            }
+        }
+
+        // Write PPM file
+        try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
+            writer.println("P3");
+            writer.println(width + " " + height);
+            writer.println("255");
+
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int index = lattice.getIndex(x, y);
+
+                    if (lattice.isAnnealing[index]) {
+                        // Red intensity based on temperature
+                        float norm = lattice.annealingTemperature[index] / maxTemp;
+                        int intensity = (int) (norm * 255);
+                        writer.println(intensity + " 0 0");
+                    } else {
+                        // Black for inactive
+                        writer.println("0 0 0");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Generate a PPM image showing particle boundaries.
+     * Each particle gets a unique color.
+     */
+    public void generateParticleImage(String filename) throws IOException {
+        int width = lattice.gridWidth;
+        int height = lattice.gridHeight;
+
+        // Create a mapping from sphere index to particle ID
+        int[] particleMap = new int[lattice.totalSpheres];
+        java.util.Arrays.fill(particleMap, -1);
+
+        for (ParticlePattern particle : lattice.particles) {
+            for (int sphereIdx : particle.getParticipatingSpheres()) {
+                particleMap[sphereIdx] = particle.getId();
+            }
+        }
+
+        // Write PPM file
+        try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
+            writer.println("P3");
+            writer.println(width + " " + height);
+            writer.println("255");
+
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int index = lattice.getIndex(x, y);
+                    int particleId = particleMap[index];
+
+                    if (particleId >= 0) {
+                        // Assign unique color based on particle ID
+                        int[] rgb = particleIdToColor(particleId);
+                        writer.println(rgb[0] + " " + rgb[1] + " " + rgb[2]);
+                    } else {
+                        // Gray for non-particle spheres
+                        writer.println("64 64 64");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Generate a PPM image showing stability (how long spheres have been in stable configuration).
+     */
+    public void generateStabilityHeatmap(String filename) throws IOException {
+        int width = lattice.gridWidth;
+        int height = lattice.gridHeight;
+
+        // Find max stability for normalization
+        int maxStability = 1;
+        for (int i = 0; i < lattice.totalSpheres; i++) {
+            maxStability = Math.max(maxStability, lattice.stabilityHistory[i]);
+        }
+
+        // Write PPM file
+        try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
+            writer.println("P3");
+            writer.println(width + " " + height);
+            writer.println("255");
+
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int index = lattice.getIndex(x, y);
+                    float norm = (float) lattice.stabilityHistory[index] / maxStability;
+
+                    // Green = stable, darker = less stable
+                    int intensity = (int) (norm * 255);
+                    writer.println("0 " + intensity + " 0");
+                }
+            }
+        }
+    }
+
+    /**
+     * Convert particle ID to a unique RGB color.
+     */
+    private int[] particleIdToColor(int id) {
+        // Use golden ratio for nice color spread
+        float hue = (id * 0.618033988749895f) % 1.0f;
+        return hsvToRgb(hue, 0.8f, 0.9f);
+    }
+
+    /**
+     * Convert HSV to RGB.
+     */
+    private int[] hsvToRgb(float h, float s, float v) {
+        int hi = (int) (h * 6) % 6;
+        float f = h * 6 - hi;
+        float p = v * (1 - s);
+        float q = v * (1 - f * s);
+        float t = v * (1 - (1 - f) * s);
+
+        float r, g, b;
+        switch (hi) {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            default: r = v; g = p; b = q; break;
+        }
+
+        return new int[]{(int) (r * 255), (int) (g * 255), (int) (b * 255)};
+    }
 }

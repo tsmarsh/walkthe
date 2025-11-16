@@ -13,6 +13,8 @@ public class SimulationEngine {
     private final Integrator integrator;
     private final EMPropagator emPropagator;
     private final Visualizer visualizer;
+    private final AnnealingEngine annealing;
+    private final ParticleDetector particleDetector;
 
     private int currentTimestep;
     private float simulationTime;
@@ -29,6 +31,8 @@ public class SimulationEngine {
         this.integrator = new Integrator(lattice);
         this.emPropagator = new EMPropagator(lattice);
         this.visualizer = new Visualizer(lattice);
+        this.annealing = new AnnealingEngine(lattice);
+        this.particleDetector = new ParticleDetector(lattice, annealing);
 
         this.currentTimestep = 0;
         this.simulationTime = 0.0f;
@@ -63,7 +67,24 @@ public class SimulationEngine {
             emPropagator.propagate(dt);
         }
 
-        // 6. Update time
+        // 6. Annealing phase (strong force)
+        if (currentTimestep % PlanckLattice.ANNEALING_FREQUENCY == 0) {
+            annealing.identifyAnnealingRegions();
+            annealing.performAnnealingStep();
+        }
+
+        // 7. Particle tracking and resonance
+        if (currentTimestep % PlanckLattice.PARTICLE_DETECTION_FREQUENCY == 0) {
+            particleDetector.detectParticles();
+            particleDetector.propagateInternalResonance();
+        }
+
+        // 8. Update neighbor topology periodically (expensive operation)
+        if (currentTimestep % (PlanckLattice.ANNEALING_FREQUENCY * 10) == 0) {
+            annealing.updateNeighborLists();
+        }
+
+        // 9. Update time
         currentTimestep++;
         simulationTime += dt;
     }
@@ -95,12 +116,25 @@ public class SimulationEngine {
 
                 visualizer.printStatistics(currentTimestep, elapsedMs);
 
+                // Print annealing and particle statistics
+                int annealingCount = annealing.getAnnealingCount();
+                float avgTemp = annealing.getAverageTemperature();
+                if (annealingCount > 0) {
+                    System.out.printf("  Annealing: %d spheres, avg temp: %.4f%n",
+                                    annealingCount, avgTemp);
+                }
+
+                particleDetector.printParticleStatistics();
+
                 // Save images
                 try {
                     String prefix = String.format("output/frame_%05d", currentTimestep);
                     visualizer.generateSpacingHeatmap(prefix + "_spacing.ppm");
                     visualizer.generateEMFieldImage(prefix + "_em.ppm");
                     visualizer.generateEnergyDensityImage(prefix + "_energy.ppm");
+                    visualizer.generateAnnealingActivityImage(prefix + "_annealing.ppm");
+                    visualizer.generateParticleImage(prefix + "_particles.ppm");
+                    visualizer.generateStabilityHeatmap(prefix + "_stability.ppm");
 
                     // Append to CSV
                     visualizer.appendStatisticsToCSV("output/statistics.csv", currentTimestep, elapsedMs);
