@@ -1,0 +1,169 @@
+name: Release Builds
+
+on:
+  push:
+    tags:
+      - 'lattice-gpu-v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+            artifact: lattice-gpu-viewer-linux-x86_64
+
+          - os: macos-latest
+            platform: macos-intel
+            target: x86_64-apple-darwin
+            artifact: lattice-gpu-viewer-macos-intel
+
+          - os: macos-latest
+            platform: macos-arm
+            target: aarch64-apple-darwin
+            artifact: lattice-gpu-viewer-macos-arm
+
+          - os: windows-latest
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            artifact: lattice-gpu-viewer-windows-x86_64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libvulkan-dev \
+            mesa-vulkan-drivers \
+            libwayland-dev
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-git-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: lattice-gpu/target
+          key: ${{ runner.os }}-${{ matrix.target }}-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-target-
+
+      - name: Build release binary
+        working-directory: lattice-gpu
+        run: cargo build --release --target ${{ matrix.target }} --bin viewer
+
+      - name: Prepare artifact (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p artifacts
+          cp lattice-gpu/target/${{ matrix.target }}/release/viewer artifacts/${{ matrix.artifact }}
+          chmod +x artifacts/${{ matrix.artifact }}
+
+      - name: Prepare artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir artifacts
+          copy lattice-gpu\target\${{ matrix.target }}\release\viewer.exe artifacts\${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: artifacts/${{ matrix.artifact }}
+          retention-days: 90
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          # Quantum Lattice GPU Viewer
+
+          GPU-accelerated 3D quantum lattice simulation with real-time visualization.
+
+          ## Download
+
+          Choose the binary for your platform:
+
+          - **Linux (x86_64)**: `lattice-gpu-viewer-linux-x86_64`
+          - **macOS (Intel)**: `lattice-gpu-viewer-macos-intel`
+          - **macOS (Apple Silicon)**: `lattice-gpu-viewer-macos-arm`
+          - **Windows (x86_64)**: `lattice-gpu-viewer-windows-x86_64.exe`
+
+          ## How to Run
+
+          ### Linux/macOS
+          ```bash
+          chmod +x lattice-gpu-viewer-*
+          ./lattice-gpu-viewer-*
+          ```
+
+          ### Windows
+          Just double-click the `.exe` file or run from command prompt.
+
+          ## Controls
+          - **Mouse drag**: Rotate camera
+          - **Mouse wheel**: Zoom
+          - **SPACE**: Pause/Resume
+          - **R**: Reset simulation
+          - **ESC**: Quit
+
+          ## Requirements
+          - GPU with Vulkan (Linux/Windows) or Metal (macOS) support
+          - Most modern GPUs from the last 5-7 years should work
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/lattice-gpu-viewer-*
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
