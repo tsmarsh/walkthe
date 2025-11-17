@@ -1,0 +1,19 @@
+[package]
+name = "lattice-gpu"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lattice_gpu"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lattice-gpu"
+path = "src/main.rs"
+
+[dependencies]
+wgpu = "22.1"
+pollster = "0.3"
+bytemuck = { version = "1.14", features = ["derive"] }
+env_logger = "0.11"
+flume = "0.11"
