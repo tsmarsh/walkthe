@@ -105,9 +105,11 @@ impl Viewer {
             .expect("Failed to find GPU adapter");
 
         let adapter_limits = adapter.limits();
-        let mut limits = wgpu::Limits::default();
-        limits.max_storage_buffer_binding_size = adapter_limits.max_storage_buffer_binding_size;
-        limits.max_buffer_size = adapter_limits.max_buffer_size;
+        let limits = wgpu::Limits {
+            max_storage_buffer_binding_size: adapter_limits.max_storage_buffer_binding_size,
+            max_buffer_size: adapter_limits.max_buffer_size,
+            ..Default::default()
+        };
 
         let (device, queue) = adapter
             .request_device(
@@ -481,8 +483,70 @@ impl Viewer {
     }
 }
 
-#[pollster::main]
-async fn main() {
+struct App {
+    viewer: Option<Viewer>,
+}
+
+impl winit::application::ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        if self.viewer.is_none() {
+            let window_attributes = winit::window::Window::default_attributes()
+                .with_title("Quantum Lattice 3D Viewer")
+                .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
+
+            let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+            let viewer = pollster::block_on(Viewer::new(window, 100));
+            self.viewer = Some(viewer);
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    ) {
+        let Some(viewer) = &mut self.viewer else {
+            return;
+        };
+
+        if !viewer.input(&event) {
+            match event {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            physical_key: PhysicalKey::Code(KeyCode::Escape),
+                            state: ElementState::Pressed,
+                            ..
+                        },
+                    ..
+                } => event_loop.exit(),
+                WindowEvent::Resized(physical_size) => {
+                    viewer.resize(physical_size);
+                }
+                WindowEvent::RedrawRequested => {
+                    viewer.update();
+                    match viewer.render() {
+                        Ok(_) => {}
+                        Err(wgpu::SurfaceError::Lost) => viewer.resize(viewer.size),
+                        Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
+                        Err(e) => eprintln!("{:?}", e),
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        if let Some(viewer) = &self.viewer {
+            viewer.window.request_redraw();
+        }
+    }
+}
+
+fn main() {
     env_logger::init();
 
     println!("=== 3D Quantum Lattice Viewer ===");
@@ -494,51 +558,7 @@ async fn main() {
     println!("  ESC: Quit\n");
 
     let event_loop = EventLoop::new().unwrap();
-    let window_attributes = winit::window::Window::default_attributes()
-        .with_title("Quantum Lattice 3D Viewer")
-        .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
-    let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+    let mut app = App { viewer: None };
 
-    let mut viewer = Viewer::new(window.clone(), 100).await;
-
-    let _ = event_loop
-        .run(move |event, target| match event {
-            winit::event::Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == viewer.window.id() => {
-                if !viewer.input(event) {
-                    match event {
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    physical_key: PhysicalKey::Code(KeyCode::Escape),
-                                    state: ElementState::Pressed,
-                                    ..
-                                },
-                            ..
-                        } => target.exit(),
-                        WindowEvent::Resized(physical_size) => {
-                            viewer.resize(*physical_size);
-                        }
-                        WindowEvent::RedrawRequested => {
-                            viewer.update();
-                            match viewer.render() {
-                                Ok(_) => {}
-                                Err(wgpu::SurfaceError::Lost) => viewer.resize(viewer.size),
-                                Err(wgpu::SurfaceError::OutOfMemory) => target.exit(),
-                                Err(e) => eprintln!("{:?}", e),
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            winit::event::Event::AboutToWait => {
-                viewer.window.request_redraw();
-            }
-            _ => {}
-        })
-        .unwrap();
+    event_loop.run_app(&mut app).unwrap();
 }

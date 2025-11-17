@@ -52,9 +52,11 @@ impl DiscreteLatticeGPU {
 
         // Request maximum limits, but don't exceed what adapter supports
         // RTX 4080: 2 GB, lavapipe: 2 GB - 1 byte
-        let mut limits = wgpu::Limits::default();
-        limits.max_storage_buffer_binding_size = adapter_limits.max_storage_buffer_binding_size;
-        limits.max_buffer_size = adapter_limits.max_buffer_size;
+        let limits = wgpu::Limits {
+            max_storage_buffer_binding_size: adapter_limits.max_storage_buffer_binding_size,
+            max_buffer_size: adapter_limits.max_buffer_size,
+            ..Default::default()
+        };
 
         let (device, queue) = adapter
             .request_device(
@@ -392,7 +394,7 @@ impl DiscreteLatticeGPU {
             .write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
 
         // Determine which buffers to use (ping-pong)
-        let (input_buffer, output_buffer) = if self.step_count % 2 == 0 {
+        let (input_buffer, output_buffer) = if self.step_count.is_multiple_of(2) {
             (&self.energy_buffer_a, &self.energy_buffer_b)
         } else {
             (&self.energy_buffer_b, &self.energy_buffer_a)
@@ -419,9 +421,9 @@ impl DiscreteLatticeGPU {
         });
 
         // Workgroups: 4x4x4 = 64 threads per workgroup
-        let workgroups_x = (self.width + 3) / 4;
-        let workgroups_y = (self.height + 3) / 4;
-        let workgroups_z = (self.depth + 3) / 4;
+        let workgroups_x = self.width.div_ceil(4);
+        let workgroups_y = self.height.div_ceil(4);
+        let workgroups_z = self.depth.div_ceil(4);
 
         // Dispatch PASS 1: Copy energy
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -454,7 +456,7 @@ impl DiscreteLatticeGPU {
 
     pub fn get_energy_buffer(&self) -> &wgpu::Buffer {
         // Return the current active buffer for rendering
-        if self.step_count % 2 == 0 {
+        if self.step_count.is_multiple_of(2) {
             &self.energy_buffer_a
         } else {
             &self.energy_buffer_b
@@ -463,7 +465,7 @@ impl DiscreteLatticeGPU {
 
     pub async fn get_total_energy(&self) -> u32 {
         // Use the current active buffer
-        let active_buffer = if self.step_count % 2 == 0 {
+        let active_buffer = if self.step_count.is_multiple_of(2) {
             &self.energy_buffer_a
         } else {
             &self.energy_buffer_b
