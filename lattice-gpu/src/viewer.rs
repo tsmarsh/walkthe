@@ -156,17 +156,19 @@ impl Viewer {
         );
         lattice.initialize_vacuum();
 
-        // Add spherical energy distribution
+        // Add large spherical energy distribution
         let c = lattice_size / 2;
-        for dz in -3i32..=3 {
-            for dy in -3i32..=3 {
-                for dx in -3i32..=3 {
-                    if dx * dx + dy * dy + dz * dz <= 9 {
+        let radius = 15i32; // Much larger sphere
+        for dz in -radius..=radius {
+            for dy in -radius..=radius {
+                for dx in -radius..=radius {
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
+                    if dist_sq <= radius * radius {
                         lattice.add_energy_quantum(
                             (c as i32 + dx) as u32,
                             (c as i32 + dy) as u32,
                             (c as i32 + dz) as u32,
-                            3,
+                            3, // Max energy level
                         );
                     }
                 }
@@ -334,10 +336,12 @@ impl Viewer {
                     println!("Resetting lattice...");
                     self.lattice.initialize_vacuum();
                     let c = 50; // Assume 100³ lattice
-                    for dz in -3i32..=3 {
-                        for dy in -3i32..=3 {
-                            for dx in -3i32..=3 {
-                                if dx * dx + dy * dy + dz * dz <= 9 {
+                    let radius = 15i32;
+                    for dz in -radius..=radius {
+                        for dy in -radius..=radius {
+                            for dx in -radius..=radius {
+                                let dist_sq = dx * dx + dy * dy + dz * dz;
+                                if dist_sq <= radius * radius {
                                     self.lattice.add_energy_quantum(
                                         (c + dx) as u32,
                                         (c + dy) as u32,
