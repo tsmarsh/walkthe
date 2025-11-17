@@ -8,19 +8,22 @@ fn main() {
     // Test different lattice sizes - up to driver limit (2GB per buffer)
     // Max theoretical: 812³ (536M sites = 2.14 GB)
     let test_configs = vec![
-        (200, 100),    // 8M sites, 100 iterations
-        (300, 100),    // 27M sites, 100 iterations
-        (400, 100),    // 64M sites, 100 iterations
-        (500, 100),    // 125M sites, 100 iterations
-        (600, 50),     // 216M sites, 50 iterations
-        (700, 50),     // 343M sites, 50 iterations - pushing the limit!
+        (200, 100), // 8M sites, 100 iterations
+        (300, 100), // 27M sites, 100 iterations
+        (400, 100), // 64M sites, 100 iterations
+        (500, 100), // 125M sites, 100 iterations
+        (600, 50),  // 216M sites, 50 iterations
+        (700, 50),  // 343M sites, 50 iterations - pushing the limit!
     ];
 
     for (size, iterations) in test_configs {
         let total_sites = size * size * size;
         let data_size_mb = (total_sites * 4) as f64 / (1024.0 * 1024.0);
 
-        println!("=== {}³ Lattice ({} sites, {:.1} MB) ===\n", size, total_sites, data_size_mb);
+        println!(
+            "=== {}³ Lattice ({} sites, {:.1} MB) ===\n",
+            size, total_sites, data_size_mb
+        );
 
         let mut lattice = pollster::block_on(DiscreteLatticeGPU::new(size, size, size));
         lattice.initialize_vacuum();
@@ -68,7 +71,10 @@ fn main() {
         let throughput = total_sites as f64 * iterations as f64 / elapsed.as_secs_f64();
 
         println!("GPU Performance:");
-        println!("  Total time: {:.2} ms for {} iterations", time_ms, iterations);
+        println!(
+            "  Total time: {:.2} ms for {} iterations",
+            time_ms, iterations
+        );
         println!("  Per iteration: {:.3} ms", avg_ms);
         println!("  Throughput: {:.2e} sites/sec", throughput);
         println!("  GB/sec (read+write): {:.2}", (throughput * 8.0) / 1e9);

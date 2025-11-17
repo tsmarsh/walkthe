@@ -199,7 +199,9 @@ impl Viewer {
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Params Buffer"),
             contents: bytemuck::cast_slice(&[params_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST,
         });
 
         // Load shaders
@@ -329,7 +331,10 @@ impl Viewer {
             } => match key {
                 KeyCode::Space => {
                     self.paused = !self.paused;
-                    println!("Simulation {}", if self.paused { "paused" } else { "running" });
+                    println!(
+                        "Simulation {}",
+                        if self.paused { "paused" } else { "running" }
+                    );
                     true
                 }
                 KeyCode::KeyR => {
@@ -356,7 +361,11 @@ impl Viewer {
                 }
                 _ => false,
             },
-            WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
                 self.mouse_pressed = *state == ElementState::Pressed;
                 if !self.mouse_pressed {
                     self.last_mouse_pos = None;
@@ -374,7 +383,10 @@ impl Viewer {
                 }
                 true
             }
-            WindowEvent::MouseWheel { delta: MouseScrollDelta::LineDelta(_, y), .. } => {
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::LineDelta(_, y),
+                ..
+            } => {
                 self.camera.update(0.0, 0.0, -*y);
                 true
             }
@@ -394,8 +406,11 @@ impl Viewer {
                 .build_view_proj_matrix(self.size.width as f32 / self.size.height as f32)
                 .to_cols_array_2d(),
         };
-        self.queue
-            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_uniform]));
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[camera_uniform]),
+        );
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -425,9 +440,11 @@ impl Viewer {
             ],
         });
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -486,9 +503,10 @@ async fn main() {
 
     let _ = event_loop
         .run(move |event, target| match event {
-            winit::event::Event::WindowEvent { ref event, window_id }
-                if window_id == viewer.window.id() =>
-            {
+            winit::event::Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == viewer.window.id() => {
                 if !viewer.input(event) {
                     match event {
                         WindowEvent::CloseRequested

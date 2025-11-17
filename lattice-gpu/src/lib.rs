@@ -198,7 +198,13 @@ impl DiscreteLatticeGPU {
         }
     }
 
-    pub fn new_with_device(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, width: u32, height: u32, depth: u32) -> Self {
+    pub fn new_with_device(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        width: u32,
+        height: u32,
+        depth: u32,
+    ) -> Self {
         let total_sites = (width * height * depth) as usize;
 
         // Create buffers
