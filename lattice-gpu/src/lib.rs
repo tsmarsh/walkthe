@@ -315,6 +315,15 @@ impl DiscreteLatticeGPU {
         self.step_count += 1;
     }
 
+    pub fn get_energy_buffer(&self) -> &wgpu::Buffer {
+        // Return the current active buffer for rendering
+        if self.step_count % 2 == 0 {
+            &self.energy_buffer_a
+        } else {
+            &self.energy_buffer_b
+        }
+    }
+
     pub async fn get_total_energy(&self) -> u32 {
         // Use the current active buffer
         let active_buffer = if self.step_count % 2 == 0 {
