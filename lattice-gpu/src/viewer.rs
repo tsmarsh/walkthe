@@ -75,7 +75,7 @@ struct Viewer {
     render_pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
     params_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
+    bind_group_layout: wgpu::BindGroupLayout,
 
     camera: Camera,
     paused: bool,
@@ -145,10 +145,15 @@ impl Viewer {
         };
         surface.configure(&device, &config);
 
-        // Create lattice
+        // Create lattice with shared device
         println!("Initializing {}³ quantum lattice on GPU...", lattice_size);
-        let mut lattice =
-            pollster::block_on(DiscreteLatticeGPU::new(lattice_size, lattice_size, lattice_size));
+        let mut lattice = DiscreteLatticeGPU::new_with_device(
+            device.clone(),
+            queue.clone(),
+            lattice_size,
+            lattice_size,
+            lattice_size,
+        );
         lattice.initialize_vacuum();
 
         // Add spherical energy distribution
@@ -192,7 +197,7 @@ impl Viewer {
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Params Buffer"),
             contents: bytemuck::cast_slice(&[params_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         // Load shaders
@@ -237,28 +242,6 @@ impl Viewer {
                         min_binding_size: None,
                     },
                     count: None,
-                },
-            ],
-        });
-
-        // Get reference to lattice energy buffer (we'll bind this for rendering)
-        let energy_buffer_ref = lattice.get_energy_buffer();
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Render Bind Group"),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: energy_buffer_ref.as_entire_binding(),
                 },
             ],
         });
@@ -314,7 +297,7 @@ impl Viewer {
             render_pipeline,
             camera_buffer,
             params_buffer,
-            bind_group,
+            bind_group_layout,
             camera,
             paused: false,
             mouse_pressed: false,
@@ -417,6 +400,27 @@ impl Viewer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+        // Create bind group with current energy buffer (updates each frame for ping-pong buffers)
+        let energy_buffer = self.lattice.get_energy_buffer();
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Render Bind Group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: energy_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
@@ -443,7 +447,7 @@ impl Viewer {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.bind_group, &[]);
+            render_pass.set_bind_group(0, &bind_group, &[]);
 
             let total_sites = 100 * 100 * 100; // Assumes 100³ lattice
             render_pass.draw(0..total_sites, 0..1);

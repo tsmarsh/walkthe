@@ -6,6 +6,7 @@
 // - Supports up to 700³ lattices (~343M sites, 1.3GB) on RTX 4080
 
 use bytemuck::{Pod, Zeroable};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -18,8 +19,8 @@ struct Params {
 }
 
 pub struct DiscreteLatticeGPU {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
     copy_pipeline: wgpu::ComputePipeline,
     propagate_pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -68,6 +69,136 @@ impl DiscreteLatticeGPU {
             .await
             .expect("Failed to create device");
 
+        let total_sites = (width * height * depth) as usize;
+
+        // Create buffers
+        let params = Params {
+            width,
+            height,
+            depth,
+            step_count: 0,
+        };
+
+        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Params Buffer"),
+            contents: bytemuck::cast_slice(&[params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Energy buffers (ping-pong)
+        let energy_buffer_a = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Energy Buffer A"),
+            size: (total_sites * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        let energy_buffer_b = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Energy Buffer B"),
+            size: (total_sites * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        // Staging buffer for reading results back
+        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Staging Buffer"),
+            size: (total_sites * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Load shader
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Compute Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        // Create bind group layout
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        // Create compute pipelines
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let copy_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Copy Pipeline"),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: "copy_energy",
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        let propagate_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Propagate Pipeline"),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: "propagate_energy",
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        Self {
+            device: Arc::new(device),
+            queue: Arc::new(queue),
+            copy_pipeline,
+            propagate_pipeline,
+            bind_group_layout,
+            params_buffer,
+            energy_buffer_a,
+            energy_buffer_b,
+            staging_buffer,
+            width,
+            height,
+            depth,
+            total_sites,
+            step_count: 0,
+        }
+    }
+
+    pub fn new_with_device(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, width: u32, height: u32, depth: u32) -> Self {
         let total_sites = (width * height * depth) as usize;
 
         // Create buffers
